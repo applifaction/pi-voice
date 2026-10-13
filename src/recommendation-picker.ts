@@ -14,7 +14,7 @@ import {
 } from "./catalog.js";
 import type { CatalogModelActivation } from "./model-activation.js";
 import { undetectablePreferences } from "./language-detection-policy.js";
-import { downloadAction } from "./model-cells.js";
+import { autoUnavailableNotice, downloadAction } from "./model-cells.js";
 import { ModelSelectionController } from "./model-selection-controller.js";
 import { VoiceKeys } from "./keybindings.js";
 import {
@@ -207,8 +207,7 @@ export class RecommendedModelPicker extends Container implements Focusable {
       // Recommended models support every chosen language, so Auto covers
       // them all unless the detector cannot identify one.
       if (this.languages.length > 1 && undetectablePreferences(recommendation.model, this.languages).length === 0) {
-        const scope = this.languages.length === 2 ? "both languages" : "all your languages";
-        text += ` It switches between ${scope} automatically.`;
+        text += " It detects which language you're speaking automatically.";
       }
       return text;
     }
@@ -276,10 +275,8 @@ export class RecommendedModelPicker extends Container implements Focusable {
         ),
       );
     }
-    const skipped = undetectablePreferences(recommendation.model, this.languages);
-    if (skipped.length) {
-      details.addChild(new Text(this.theme.fg("warning", `Auto can't detect ${skipped.map(displayLanguage).join(", ")}.`), LIST_PADDING + 2, 0));
-    }
+    const notice = autoUnavailableNotice(recommendation.model, this.languages);
+    if (notice) details.addChild(new Text(this.theme.fg("warning", notice), LIST_PADDING + 2, 0));
     return details;
   }
 

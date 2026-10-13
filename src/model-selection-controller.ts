@@ -148,8 +148,12 @@ export class ModelSelectionController<R> {
         if (this.target !== target) { this.changed(); return; }
         this.target = undefined;
         this.download = undefined;
-        this.feedback = downloads ? {
+        // A failed detector download still selects the model; its own warning explains.
+        const detectorDownloaded = cached && !pendingDownloads(model, true).length;
+        this.feedback = !cached ? {
           type: "success", text: `✓ Downloaded and selected ${model.name}`,
+        } : detectorDownloaded && downloads ? {
+          type: "success", text: `✓ Selected ${model.name} and downloaded the language detector`,
         } : undefined;
         if (this.pendingExit) this.finish(this.pendingExit.result);
         else if (this.options.advance) this.finish(this.options.completion);

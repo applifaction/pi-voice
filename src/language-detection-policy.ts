@@ -79,14 +79,20 @@ export function settingsLanguagePolicy(settings: TranscribeSettings): AutoLangua
 
 const WINDOW_SAMPLES = 7 * CAPTURE_SAMPLE_RATE;
 const MIN_SAMPLES = CAPTURE_SAMPLE_RATE / 2;
-// Warn when the top pick is less than 1.5x as likely as the runner-up (with
-// two languages: p < 0.6). The pick is used either way.
+// Log a pick as uncertain when it is less than 1.5x as likely as the
+// runner-up (with two languages: p < 0.6). The pick is used either way.
 const UNSURE_RATIO = 1.5;
+
+/** Shown once per session when Auto runs without the detector on disk. */
+export function missingDetectorWarning(fallback: string): string {
+  return `The language detector isn't downloaded. Transcribed as ${displayLanguage(fallback)}. ` +
+    "To download it, open /voice-settings and choose Auto detect as the transcription language.";
+}
 
 /**
  * Pick one language for a whole clip from its first seven seconds: always the
- * top candidate. Only skipped (< 500 ms), failed, or malformed detection falls
- * back to the first preferred language.
+ * top candidate. Skipped (< 500 ms), failed, or malformed detection falls back
+ * to the first preferred language; only the last two warn.
  */
 export async function detectLanguage(
   policy: DetectPolicy,
@@ -94,28 +100,27 @@ export async function detectLanguage(
   identify: (pcm: Float32Array, allowed: readonly string[]) => Promise<LangIdResult>,
 ): Promise<{ language: string; warning?: string }> {
   const fallback = policy.languages[0]!;
-  const usedFallback = `Couldn't tell the language. Used ${displayLanguage(fallback)}.`;
+  const seconds = (pcm.length / CAPTURE_SAMPLE_RATE).toFixed(2);
   if (pcm.length < MIN_SAMPLES) {
-    return { language: fallback, warning: `Too short to tell the language. Used ${displayLanguage(fallback)}.` };
+    log.info(`language detection: skipped, the ${seconds} s clip is under the ` +
+      `${MIN_SAMPLES / CAPTURE_SAMPLE_RATE} s minimum; transcribing as ${fallback}, the first preferred language`);
+    return { language: fallback };
   }
+  const transcribedAs = `Transcribed as ${displayLanguage(fallback)}.`;
   try {
     const result = await identify(pcm.subarray(0, WINDOW_SAMPLES), policy.allowed);
     const [first, second] = result.candidates;
     const language = policy.languages[policy.allowed.indexOf(result.code ?? "")];
     const scores = result.candidates.map((c) => `${c.code} ${(c.p * 100).toFixed(1)}%`).join(", ");
+    const unsure = first && second && first.p < UNSURE_RATIO * second.p ? ", uncertain" : "";
     log.info(`language detection: ${language ?? "none"} (${scores}; ` +
-      `${(pcm.length / CAPTURE_SAMPLE_RATE).toFixed(1)} s, allowed mass ${(result.allowedMass * 100).toFixed(1)}%)`);
-    if (!language || !first || !Number.isFinite(first.p)) return { language: fallback, warning: usedFallback };
-    if (second && first.p < UNSURE_RATIO * second.p) {
-      return {
-        language,
-        warning: `Not sure which language this was. Guessed ${displayLanguage(language)} (${Math.floor(first.p * 100)}% sure).`,
-      };
+      `${seconds} s, allowed mass ${(result.allowedMass * 100).toFixed(1)}%${unsure})`);
+    if (!language || !first || !Number.isFinite(first.p)) {
+      return { language: fallback, warning: `Couldn't detect the language. ${transcribedAs}` };
     }
     return { language };
   } catch (error) {
     log.warn(`Language detection failed: ${describeError(error)}`);
-    // Keep the reason: some failures say how to fix them (e.g. a missing detector).
-    return { language: fallback, warning: `${usedFallback} ${describeError(error)}` };
+    return { language: fallback, warning: `Language detection failed (${describeError(error)}). ${transcribedAs}` };
   }
 }

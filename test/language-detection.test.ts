@@ -67,13 +67,14 @@ test("Auto on a model without native detection transcribes in the detected langu
   assert.equal(h.asrCalls[0]!.language, "de");
 });
 
-test("a missing detector still transcribes, in the first preferred language, with a warning", async (t) => {
+test("a missing detector still transcribes, in the first preferred language, warning once", async (t) => {
   const h = harness(t, { detectorCached: false });
   const { text, warning } = await h.service.transcribeFile(settings, SPEECH);
 
   assert.equal(text, "transcript");
-  assert.match(warning ?? "", /language detector is missing/);
+  assert.match(warning ?? "", /language detector isn't downloaded/);
   assert.equal(h.asrCalls[0]!.language, "en");
+  assert.deepEqual(await h.service.transcribeFile(settings, SPEECH), { text: "transcript" });
 });
 
 test("cancelling dictation during detection never falls back to transcribing", async (t) => {

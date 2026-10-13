@@ -34,7 +34,7 @@ export type DictationResult = {
   interruption?: Error;
   /** Audio lost inside the recording because it wasn't read in time. */
   droppedFrames?: number;
-  /** Language identification limitation or fallback, never part of the text. */
+  /** Language detection fallback, never part of the text. */
   warning?: string;
 };
 export type DictationState =

@@ -16,7 +16,7 @@ import {
   type AccuracyLetter,
   type RecommendationRole,
 } from "./recommendations.js";
-import { requiresLanguageDetector } from "./language-detection-policy.js";
+import { requiresLanguageDetector, undetectablePreferences } from "./language-detection-policy.js";
 import { findIncompleteDownload, pendingDownloads } from "./models.js";
 import { LIST_PADDING, padToWidth, selectionMarker } from "./ui-components.js";
 
@@ -191,7 +191,7 @@ export function modelDetailText(
       : `${canonicalLanguages.length} languages`,
     // Native detection, or the shared detector for multilingual models.
     model.capabilities.languageDetection || requiresLanguageDetector(model)
-      ? "auto language detection"
+      ? "automatic language detection"
       : undefined,
   ].filter((value): value is string => Boolean(value));
   const description = truncateToWidth(
@@ -211,7 +211,20 @@ export function downloadAction(model: CatalogModel, modelCached: boolean): strin
   if (!pending.length) return "choose";
   const partial = pending.map(findIncompleteDownload);
   const bytes = pending.reduce((sum, item, index) => sum + item.size - (partial[index]?.bytes ?? 0), 0);
-  return `${partial.some(Boolean) ? "resume" : "download"} ${formatBinarySize(bytes)}`;
+  return partial.some(Boolean)
+    ? `resume download (${formatBinarySize(bytes)} left)`
+    : `download ${formatBinarySize(bytes)}`;
+}
+
+/** Why Auto detect is missing for these preferences, if a language is undetectable. */
+export function autoUnavailableNotice(
+  model: CatalogModel,
+  preferredLanguages: readonly string[],
+): string | undefined {
+  const skipped = undetectablePreferences(model, preferredLanguages).map(displayLanguage);
+  if (!skipped.length) return undefined;
+  const languages = new Intl.ListFormat("en", { type: "disjunction" }).format(skipped);
+  return `Auto detect is unavailable for your preferred languages because it can't detect ${languages}.`;
 }
 
 /**

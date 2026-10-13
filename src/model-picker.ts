@@ -30,6 +30,7 @@ import {
   type ModelBenchmark,
 } from "./recommendations.js";
 import {
+  autoUnavailableNotice,
   downloadAction,
   MANUAL_LANGUAGE_TAG,
   ON_DISK_LABEL,
@@ -42,7 +43,7 @@ import {
 import { ModelSelectionController } from "./model-selection-controller.js";
 import { ModelRatingsHelp } from "./model-ratings-help.js";
 import type { CatalogModelActivation } from "./model-activation.js";
-import { autoLanguagePolicy, undetectablePreferences } from "./language-detection-policy.js";
+import { autoLanguagePolicy } from "./language-detection-policy.js";
 import { VoiceKeys } from "./keybindings.js";
 import type { TranscriptionLanguage } from "./settings.js";
 import {
@@ -785,8 +786,8 @@ export class CatalogModelPicker extends Container implements Focusable {
   }
 
   private modelNotices(model: CatalogModel): string {
-    const skipped = undetectablePreferences(model, this.preferredLanguages);
-    return skipped.length ? `\n${this.theme.fg("warning", `Auto can't detect ${skipped.map(displayLanguage).join(", ")}.`)}` : "";
+    const notice = autoUnavailableNotice(model, this.preferredLanguages);
+    return notice ? `\n${this.theme.fg("warning", notice)}` : "";
   }
 
   private finishFooter(query: string): void {
@@ -1007,9 +1008,9 @@ export function createTranscriptionLanguagePicker(
     ? {
       value: "auto",
       label: "Auto detect",
-      description: `Picks between ${new Intl.ListFormat("en", { type: "conjunction" }).format(
+      description: `Detects which of your preferred languages you're speaking (${new Intl.ListFormat("en", { type: "disjunction" }).format(
         policy.languages.map((language) => transcriptionLanguageName(language, model.languages)),
-      )}, your preferred languages.`,
+      )}) in each recording.`,
     }
     : { value: "auto", label: "Auto detect" };
   const choices: SingleSelectChoice<TranscriptionLanguage>[] = [

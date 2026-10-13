@@ -1,6 +1,12 @@
-import { LANGUAGE_DETECTION_MODEL } from "./catalog.js";
+import { LANGUAGE_DETECTION_MODEL, displayLanguage, getCatalogModel } from "./catalog.js";
 import { Deferred } from "./deferred.js";
-import { detectLanguage, settingsLanguagePolicy, type AutoLanguagePolicy } from "./language-detection-policy.js";
+import {
+  detectLanguage,
+  missingDetectorWarning,
+  settingsLanguagePolicy,
+  undetectablePreferences,
+  type AutoLanguagePolicy,
+} from "./language-detection-policy.js";
 import type { TranscribeSettings } from "./settings.js";
 import type {
   DictationStream,
@@ -86,6 +92,12 @@ function fixedLanguage(policy: AutoLanguagePolicy): string | undefined {
   return policy.kind === "fixed" ? policy.language : undefined;
 }
 
+async function cachedDetectorPath(): Promise<string | undefined> {
+  // Keeps Hugging Face modules off the path of every other take.
+  const { findCachedCatalogModel } = await import("./models.js");
+  return findCachedCatalogModel(LANGUAGE_DETECTION_MODEL)?.path;
+}
+
 /** Owns the loaded model and schedules dictation ahead of queued file jobs. */
 export class TranscriptionService {
   private backend: ReusableBackend | undefined;
@@ -99,6 +111,8 @@ export class TranscriptionService {
   private readonly shutdownController = new AbortController();
   /** The language detector, loaded on demand like the transcription model. */
   private detector: ReusableBackend | undefined;
+  /** A missing detector warns on the first take only, not every take. */
+  private missingDetectorWarned = false;
 
   constructor(
     private readonly createBackend: BackendFactory = async (modelPath) => {
@@ -486,13 +500,19 @@ export class TranscriptionService {
     signal.throwIfAborted();
     let language = fixedLanguage(policy);
     let warning: string | undefined;
-    if (policy.kind === "detect") {
+    if (policy.kind === "detect" && !this.detector && !(await cachedDetectorPath())) {
+      language = policy.languages[0]!;
+      if (!this.missingDetectorWarned) warning = missingDetectorWarning(language);
+      this.missingDetectorWarned = true;
+    } else if (policy.kind === "detect") {
       ({ language, warning } = await detectLanguage(policy, pcm, async (clip, allowed) =>
         (await this.ensureDetector()).identifyLanguage!(clip, allowed, signal)));
       signal.throwIfAborted();
     } else if (policy.kind === "unsupported") {
       // Settings normalization drops Auto first; this guards stale settings.
-      throw new Error("Auto is unavailable for this model. Choose a transcription language in /voice-settings.");
+      const skipped = undetectablePreferences(getCatalogModel(settings.model.id)!, settings.preferredLanguages);
+      const which = skipped.length ? ` (${skipped.map(displayLanguage).join(", ")})` : "";
+      throw new Error(`Auto detect doesn't work with your current languages${which}. Choose a language in /voice-settings.`);
     }
     const text = await backend.transcribe(pcm, transcriptionOptions(settings, language, signal));
     return warning ? { text, warning } : { text };
@@ -516,13 +536,9 @@ export class TranscriptionService {
   /** Called only from the scheduler loop, so loads never race. */
   private async ensureDetector(): Promise<ReusableBackend> {
     if (!this.detector) {
-      // Keeps Hugging Face modules off the path of every other take.
-      const { findCachedCatalogModel } = await import("./models.js");
-      const cached = findCachedCatalogModel(LANGUAGE_DETECTION_MODEL);
-      if (!cached) {
-        throw new Error("The language detector is missing. Choose the model again in /voice-settings to download it.");
-      }
-      this.detector = await this.createBackend(cached.path);
+      const path = await cachedDetectorPath();
+      if (!path) throw new Error("the language detector isn't downloaded");
+      this.detector = await this.createBackend(path);
     }
     await this.detector.prepare();
     return this.detector;

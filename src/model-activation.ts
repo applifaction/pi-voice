@@ -1,4 +1,5 @@
-import { LANGUAGE_DETECTION_MODEL, type CatalogModel } from "./catalog.js";
+import { LANGUAGE_DETECTION_MODEL, displayLanguage, type CatalogModel } from "./catalog.js";
+import { settingsLanguagePolicy } from "./language-detection-policy.js";
 import { describeError, log } from "./log.js";
 import { downloadCatalogModel, findCachedCatalogModel, pendingDownloads, type CachedCatalogModel } from "./models.js";
 import { writeSettings, type TranscribeSettings } from "./settings.js";
@@ -61,24 +62,25 @@ export function createModelActivation(options: {
 
     if (detectorMissing) {
       try {
-        onProgress({ downloaded: asrBytes, total, message: "Downloading shared language detector…" });
+        onProgress({ downloaded: asrBytes, total, message: "Downloading language detector…" });
         await downloadCatalogModel(LANGUAGE_DETECTION_MODEL, {
           signal,
           onProgress: (progress) => onProgress({
             downloaded: asrBytes + progress.downloaded, total,
-            message: "Downloading shared language detector…",
+            message: "Downloading language detector…",
           }),
         });
       } catch (error) {
         // Cancellation is never a settings commit. Other failures still
         // select the model: without the detector, Auto falls back to the
-        // first preferred language, and the settings menu flags it.
+        // first preferred language, and the first take says how to fix it.
         signal.throwIfAborted();
         log.warn(`Language detector download failed: ${describeError(error)}`);
         detectorFailed = true;
       }
     }
 
+    let committed: TranscribeSettings | undefined;
     const commit = commitQueue.then(async () => {
       // Skip the write when this selection was superseded or its download
       // was cancelled while the commit sat in the queue.
@@ -92,6 +94,7 @@ export function createModelActivation(options: {
           `Could not save settings: ${error instanceof Error ? error.message : String(error)}`,
         );
       }
+      committed = settings;
       options.onCommitted(settings);
     });
     commitQueue = commit.then(
@@ -99,9 +102,15 @@ export function createModelActivation(options: {
       () => undefined,
     );
     await commit;
-    if (detectorFailed) {
+    // Only Auto detect uses the detector, so other settings need no warning.
+    const policy = committed && settingsLanguagePolicy(committed);
+    if (detectorFailed && policy?.kind === "detect") {
       try {
-        options.onWarning("Couldn't download the language detector, so Auto will use your first preferred language. Choose the model again to retry.");
+        options.onWarning(
+          `Selected ${model.name}, but the language detector didn't download. ` +
+          `Auto detect will use ${displayLanguage(policy.languages[0]!)} until it does. ` +
+          "To retry the download, choose Auto detect in /voice-settings.",
+        );
       } catch { /* Notification is not part of the save. */ }
     }
     return { path };

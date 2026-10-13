@@ -165,7 +165,7 @@ export function registerFileTranscriptionTool(
               seconds: audio.seconds,
               ...(warning ? { warning } : {}),
             };
-            const warningText = warning ? `\n\n[Language identification warning: ${warning}]` : "";
+            const warningText = warning ? `\n\n[Language detection: ${warning}]` : "";
 
             if (!transcript) {
               return {
